@@ -35,6 +35,12 @@ This ComfyUI wrapper provides native node-based integration with:
 
 > **Companion Video:** [Watch the Foundation-1 overview and design philosophy](https://www.youtube.com/watch?v=O2iBBWeWaL8)
 
+
+
+https://github.com/user-attachments/assets/6c00c56d-ea46-4feb-9bf8-876ecb2487b2
+
+
+
 ---
 
 ## Features
