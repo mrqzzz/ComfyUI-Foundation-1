@@ -117,6 +117,15 @@ def _stable_audio_dir() -> Path:
 # HuggingFace auto-download
 # ---------------------------------------------------------------------------
 
+def _check_foundation1_exists() -> bool:
+    """Check if Foundation-1 files already exist locally."""
+    dest_dir: Path = _resolve_models_dir() / _DOWNLOAD_SUB
+    for filename in _HF_FILES:
+        if not (dest_dir / filename).is_file():
+            return False
+    return True
+
+
 def _download_foundation1() -> bool:
     """Download Foundation_1.safetensors + model_config.json from HuggingFace.
 
@@ -125,6 +134,12 @@ def _download_foundation1() -> bool:
 
     Returns True if all files are present after the attempt.
     """
+    dest_dir: Path = _resolve_models_dir() / _DOWNLOAD_SUB
+
+    if _check_foundation1_exists():
+        logger.info(f"Foundation-1 files already present in: {dest_dir}")
+        return True
+
     try:
         from huggingface_hub import hf_hub_download
     except ImportError:
@@ -134,7 +149,6 @@ def _download_foundation1() -> bool:
         )
         return False
 
-    dest_dir: Path = _resolve_models_dir() / _DOWNLOAD_SUB
     dest_dir.mkdir(parents=True, exist_ok=True)
 
     logger.info(
@@ -159,7 +173,15 @@ def _download_foundation1() -> bool:
             )
             logger.info(f"Downloaded: {filename}")
         except Exception as e:
-            logger.error(f"Failed to download '{filename}': {e}")
+            error_msg = str(e).lower()
+            if "offline" in error_msg or "connection" in error_msg or "network" in error_msg or "closed" in error_msg:
+                logger.error(
+                    f"Network error - cannot download '{filename}'. "
+                    f"You appear to be offline. Files must be downloaded manually from "
+                    f"https://huggingface.co/{_HF_REPO_ID} and placed in: {dest_dir}"
+                )
+            else:
+                logger.error(f"Failed to download '{filename}': {e}")
             all_ok = False
 
     if all_ok:
@@ -209,12 +231,28 @@ def _scan_checkpoints() -> list:
     results = _do_scan()
 
     if not results:
-        logger.info(
-            "No Foundation-1 models found in models/stable_audio/. "
-            "Attempting auto-download from HuggingFace..."
-        )
-        _download_foundation1()
-        results = _do_scan()   # rescan after download attempt
+        if _check_foundation1_exists():
+            logger.info(
+                "Foundation-1 files exist but were not found by scan. "
+                "This may indicate a path issue. Expected location: "
+                f"{_resolve_models_dir() / _DOWNLOAD_SUB}"
+            )
+            dest_dir = _resolve_models_dir() / _DOWNLOAD_SUB
+            safetensors_path = dest_dir / _HF_FILES[0]
+            config_path = dest_dir / _HF_FILES[1]
+            if safetensors_path.is_file() and config_path.is_file():
+                return [{
+                    "label": _HF_FILES[0],
+                    "checkpoint": str(safetensors_path),
+                    "config": str(config_path),
+                }]
+        else:
+            logger.info(
+                "No Foundation-1 models found in models/stable_audio/. "
+                "Attempting auto-download from HuggingFace..."
+            )
+            _download_foundation1()
+            results = _do_scan()
 
     return results
 

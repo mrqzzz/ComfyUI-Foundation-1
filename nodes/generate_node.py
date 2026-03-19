@@ -81,16 +81,14 @@ def _inject_k_external() -> None:
 
     Loads external.py from our private k-diffusion install and attaches it
     as k_diffusion.external on whichever k_diffusion is in sys.modules.
-    ComfyUI's k_diffusion never uses .external so nothing breaks.
+    We ALWAYS use our vanilla external.py because ComfyUI's version has
+    been patched to expect ModelPatcher which Foundation-1 doesn't use.
     """
     global _external_injected
     if _external_injected:
         return
 
-    import k_diffusion as _kd   # safe: __init__.py registered ComfyUI's version
-    if hasattr(_kd, "external"):
-        _external_injected = True
-        return
+    import k_diffusion as _kd
 
     ext_path = _KDIFF_TARGET / "k_diffusion" / "external.py"
     mod = _load_file_as_module("k_diffusion.external", ext_path)
