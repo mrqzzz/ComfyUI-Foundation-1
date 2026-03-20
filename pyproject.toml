@@ -1,10 +1,12 @@
 [project]
 name = "ComfyUI-foundation-1"
 description = "ComfyUI custom nodes for Foundation-1 | structured text-to-sample generation for music production"
-version = "0.1.4"
+version = "0.1.5"
 license = {file = "LICENSE"}
 dependencies = [
     "einops",
+    "stable-audio-tools",
+    "rotary-embedding-torch",
     "alias-free-torch",
     "ema-pytorch",
     "einops-exts",

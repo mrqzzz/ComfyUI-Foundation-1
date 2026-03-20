@@ -13,6 +13,8 @@
 
 # Core dependencies (installed automatically by __init__.py)
 einops
+stable-audio-tools
+rotary-embedding-torch
 alias-free-torch
 ema-pytorch
 einops-exts

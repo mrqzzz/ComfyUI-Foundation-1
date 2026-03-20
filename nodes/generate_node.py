@@ -105,6 +105,49 @@ def _inject_k_external() -> None:
     logger.info("k_diffusion.external injected (VDenoiser available).")
 
 
+_KDIFF_OPTIONAL_DEPS = {
+    "torchdiffeq": ["odeint"],
+    "torchsde": ["BrownianTree"],
+}
+
+
+def _stub_optional_deps() -> dict[str, tuple[ModuleType | None, ModuleType]]:
+    """Temporarily stub torchdiffeq / torchsde if missing or broken.
+
+    The private k-diffusion sampling.py top-level imports both, but
+    Foundation-1 only uses DPM++ samplers which never touch them
+    (torchdiffeq is only for log_likelihood; torchsde only for
+    BrownianTreeNoiseSampler).  Returns a dict so callers can restore.
+    """
+    import types
+    stubs: dict[str, tuple[ModuleType | None, ModuleType]] = {}
+    for mod_name, required_attrs in _KDIFF_OPTIONAL_DEPS.items():
+        existing = sys.modules.get(mod_name)
+        if existing is not None and all(
+            hasattr(existing, attr) for attr in required_attrs
+        ):
+            continue
+        prev = existing
+        stub = types.ModuleType(mod_name)
+        for attr in required_attrs:
+            setattr(stub, attr, None)
+        sys.modules[mod_name] = stub
+        stubs[mod_name] = (prev, stub)
+    return stubs
+
+
+def _restore_stubs(
+    stubs: dict[str, tuple[ModuleType | None, ModuleType]],
+) -> None:
+    for mod_name, pair in stubs.items():
+        prev, stub = pair
+        if sys.modules.get(mod_name) is stub:
+            if prev is not None:
+                sys.modules[mod_name] = prev
+            else:
+                del sys.modules[mod_name]
+
+
 def _load_real_k_sampling() -> Optional[object]:
     """Load k_diffusion/sampling.py from our private install (cached).
 
@@ -116,7 +159,11 @@ def _load_real_k_sampling() -> Optional[object]:
         return _real_k_sampling
 
     sampling_path = _KDIFF_TARGET / "k_diffusion" / "sampling.py"
-    mod = _load_file_as_module("k_diffusion._real_sampling", sampling_path)
+    stubs = _stub_optional_deps()
+    try:
+        mod = _load_file_as_module("k_diffusion._real_sampling", sampling_path)
+    finally:
+        _restore_stubs(stubs)
     if mod is None:
         logger.error(
             "k_diffusion/sampling.py not found — "

@@ -15,6 +15,7 @@ def install():
     packages = [
         "einops>=0.7.0",
         "stable-audio-tools --no-deps",
+        "rotary-embedding-torch",
         "alias-free-torch",
         "ema-pytorch",
         "einops-exts",
