@@ -46,6 +46,7 @@ https://github.com/user-attachments/assets/6c00c56d-ea46-4feb-9bf8-876ecb2487b2
 ## Features
 
 - Structured Text-to-Sample — Generate musical loops from structured text prompts
+- **Audio-to-Audio Variations** — Connect any audio input to create variations/interpretations guided by your prompt
 - Tempo-Synced Duration — Automatic duration calculation from BPM and bar count
 - 24 Musical Keys — Full western key support (major and minor)
 - Native ComfyUI Integration — AUDIO noodle outputs, progress bars, interruption support
@@ -225,9 +226,9 @@ Loads a Foundation-1 checkpoint and prepares it for generation.
 
 ### Foundation-1 Generate
 
-Generates a tempo-synced musical loop.
+Generates a tempo-synced musical loop. Optionally accepts an audio input for variation generation.
 
-**Inputs:**
+**Required Inputs:**
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `model` | FOUNDATION1_MODEL | — | Connect from Model Loader |
@@ -244,11 +245,30 @@ Generates a tempo-synced musical loop.
 | `unload_after_generate` | BOOLEAN | False | Offload to CPU RAM after generation |
 | `torch_compile` | BOOLEAN | False | Enable torch.compile (first run slower) |
 
+**Optional Inputs (Audio Variation):**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `audio` | AUDIO | None | Input audio for variation — connect from LoadAudio, previous generation, etc. |
+| `init_noise_level` | FLOAT | 0.7 | Variation strength (0.01–1.0). Lower = closer to input, higher = more creative |
+
 **Outputs:**
 | Output | Type | Description |
 |--------|------|-------------|
 | `audio` | AUDIO | Generated audio waveform |
-| `prompt` | STRING | Full assembled prompt |
+
+<details>
+<summary><b>How Audio Variation Works</b></summary>
+
+Connect any AUDIO output (e.g., from a `LoadAudio` node, or a previous `Foundation-1 Generate` output) to the optional `audio` input. The model will use this as a starting point and create a variation guided by your prompt tags, BPM, bars, and key.
+
+**`init_noise_level` controls the variation strength:**
+- **0.1–0.3** — Output stays close to the input audio
+- **0.5–0.75** — Balanced musical variations (recommended)
+- **0.9–1.0** — Maximum creative freedom, output may differ significantly from input
+
+Leave the `audio` input disconnected for standard text-to-audio generation.
+
+</details>
 
 ---
 
@@ -376,7 +396,9 @@ ComfyUI/
 | **cfg_scale** | Classifier-free guidance | `7.0` (training default), `6-8` for balance |
 | **sampler_type** | Diffusion sampler | `dpmpp-3m-sde` (recommended, best quality), `k-dpm-fast` (fastest, needs fewer steps) |
 | **sigma_min** | Min noise level | `0.3` (default) |
-| **sigma_max** | Max noise level | `500.0` (default) |
+| **sigma_max** | Max noise level | `500.0` (default) — note: when using audio variation, this is internally overridden by `init_noise_level` |
+| **audio** | Optional input audio for variations | Connect any AUDIO output, or leave disconnected for text-to-audio |
+| **init_noise_level** | Variation strength | `0.5-0.75` (balanced), `0.1-0.3` (close to input), `1.0` (max variation) |
 | **unload_after_generate** | Offload to CPU RAM | `True` to free VRAM between runs |
 | **torch_compile** | torch.compile optimization | `True` (first run slow, subsequent faster) |
 
@@ -388,6 +410,19 @@ ComfyUI/
 
 <details>
 <summary><b>Click to expand troubleshooting guide</b></summary>
+
+### "No module named 'stable_audio_tools'"?
+
+This means `stable-audio-tools` was not installed. This can happen if you cloned the repo manually without running `install.py`, or if your pip environment is different from ComfyUI's.
+
+Fix:
+```bash
+pip install stable-audio-tools --no-deps
+```
+Then restart ComfyUI.
+
+> [!WARNING]
+> You **must** use `--no-deps`. Running `pip install stable-audio-tools` without it will pull in `pandas==2.0.2` which breaks on Python 3.13+.
 
 ### Model Not Downloading?
 

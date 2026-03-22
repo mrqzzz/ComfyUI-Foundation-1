@@ -1,8 +1,8 @@
 """Foundation-1 model cache, attention management, and ComfyUI memory integration.
 
 This module is the single source of truth for the loaded model state.
-It hooks into comfy.model_management.soft_empty_cache at import time so
-ComfyUI's native 'Free Memory' button also clears our CPU-offloaded model.
+It hooks into ComfyUI's model_management memory functions at import time so
+all 'Free Memory' / 'Unload' / 'Cleanup' UI actions also clear our cache.
 """
 
 import gc
@@ -20,7 +20,7 @@ logger = logging.getLogger("Foundation1")
 _cached_model_data: Optional[Dict[str, Any]] = None
 _cached_key: Tuple = ()
 
-# When True the soft_empty_cache hook will NOT evict the model.
+# When True, ComfyUI memory hooks will NOT evict the model.
 # Set to False when unload_after_generate=True so ComfyUI's 'Free Memory'
 # also clears the CPU-resident copy.
 _keep_in_vram: bool = True
@@ -61,6 +61,16 @@ def set_cached_model(
     _offloaded_to_cpu = False
 
 
+def set_keep_in_vram(value: bool) -> None:
+    """Update the keep_in_vram flag.
+
+    Called from the generate node when unload_after_generate changes so
+    that ComfyUI's memory management UI buttons behave correctly.
+    """
+    global _keep_in_vram
+    _keep_in_vram = value
+
+
 def is_offloaded() -> bool:
     return _offloaded_to_cpu
 
@@ -97,21 +107,18 @@ def apply_attention(attention_type: str, device: str) -> str:
                 f"'{attention_type}' requires CUDA but device is '{device}'. "
                 "Using sdpa."
             )
-        # Reset PyTorch SDPA backends to safe defaults on non-CUDA devices.
-        # (These calls are no-ops on CPU/MPS but harmless.)
         _set_sdpa_all_backends(True)
         return "sdpa"
 
     # ── CUDA path ──────────────────────────────────────────────────────────
 
-    # Auto: probe sage → then fall through to sdpa (which uses flash if available)
     resolved = attention_type
     if attention_type == "auto":
         try:
             import sageattention  # noqa: F401
             resolved = "sageattention"
         except ImportError:
-            resolved = "sdpa"  # PyTorch SDPA uses Flash as a backend automatically
+            resolved = "sdpa"
 
     if resolved == "sageattention":
         try:
@@ -153,7 +160,24 @@ def _set_sdpa_all_backends(enabled: bool) -> None:
         torch.backends.cuda.enable_mem_efficient_sdp(enabled)
         torch.backends.cuda.enable_math_sdp(enabled)
     except Exception:
-        pass  # Not on CUDA or older PyTorch — safe to ignore
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Aggressive memory cleanup
+# ---------------------------------------------------------------------------
+
+def _force_gc() -> None:
+    """Run multiple garbage collection passes and free CUDA cache.
+
+    Two passes are needed because the first pass can free large objects
+    whose destructors then reference other large objects that only become
+    collectible on the second pass.
+    """
+    gc.collect()
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
 
 # ---------------------------------------------------------------------------
@@ -165,8 +189,11 @@ def offload_to_cpu() -> None:
 
     The model stays in memory so the next resume() is much faster than
     a cold reload from disk. VRAM is freed immediately after the move.
+
+    Also sets _keep_in_vram=False so ComfyUI's memory management UI
+    buttons can fully unload the model from RAM if the user clicks them.
     """
-    global _offloaded_to_cpu
+    global _offloaded_to_cpu, _keep_in_vram
 
     if _cached_model_data is None:
         return
@@ -177,10 +204,10 @@ def offload_to_cpu() -> None:
     try:
         _cached_model_data["model"].to("cpu")
         _offloaded_to_cpu = True
+        _keep_in_vram = False
+        _cached_model_data["_compiled"] = False
 
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        gc.collect()
+        _force_gc()
 
         logger.info("Foundation-1 offloaded to CPU. VRAM freed.")
     except Exception as e:
@@ -208,57 +235,85 @@ def resume_to_device(device: str) -> None:
 # ---------------------------------------------------------------------------
 
 def unload_model() -> None:
-    """Remove the model from memory entirely (both VRAM and RAM)."""
+    """Remove the model from memory entirely (VRAM, CPU RAM, everything).
+
+    Nulls out all references and runs aggressive garbage collection to
+    ensure Python and CUDA memory are both fully freed.
+    """
     global _cached_model_data, _cached_key, _keep_in_vram, _offloaded_to_cpu
 
     if _cached_model_data is None:
         return
 
     logger.info("Unloading Foundation-1 from memory...")
-    try:
-        del _cached_model_data["model"]
-    except Exception:
-        pass
-    del _cached_model_data
 
+    model_ref = _cached_model_data.get("model")
+
+    _cached_model_data.clear()
     _cached_model_data = None
     _cached_key = ()
     _keep_in_vram = True
     _offloaded_to_cpu = False
 
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-    gc.collect()
+    if model_ref is not None:
+        try:
+            if hasattr(model_ref, "pretransform"):
+                del model_ref.pretransform
+        except Exception:
+            pass
+        try:
+            if hasattr(model_ref, "conditioner"):
+                del model_ref.conditioner
+        except Exception:
+            pass
+        try:
+            if hasattr(model_ref, "model"):
+                del model_ref.model
+        except Exception:
+            pass
+        del model_ref
+
+    model_ref = None
+    _force_gc()
     logger.info("Foundation-1 unloaded.")
 
 
 # ---------------------------------------------------------------------------
-# ComfyUI memory management hook
+# ComfyUI memory management hooks
 # ---------------------------------------------------------------------------
 
 def _hook_comfy_model_management() -> None:
-    """Patch comfy.model_management.soft_empty_cache so ComfyUI's native
-    'Free Memory' / 'Unload Models' button also clears our cache.
+    """Patch ComfyUI memory management functions so that any memory-freeing
+    action also clears our cache when _keep_in_vram is False.
 
-    Behaviour:
-    - If _keep_in_vram is True  (unload_after_generate=False): leave it alone.
-      The user explicitly chose to keep the model loaded.
-    - If _keep_in_vram is False (unload_after_generate=True): model is on CPU,
-      fully unload it so system RAM is also freed.
+    We hook multiple entry points because different ComfyUI UI elements
+    call different functions:
+      - 'Free VRAM' button         → soft_empty_cache()
+      - 'Free Model Cache' button  → cleanup_models()
+      - ComfyUI Manager actions    → free_memory() / unload_all_models()
     """
     try:
         import comfy.model_management as mm
-        _original = mm.soft_empty_cache
+    except ImportError:
+        return
 
+    def _make_wrapper(original_fn, name):
         def _patched(*args, **kwargs):
             if not _keep_in_vram:
                 unload_model()
-            return _original(*args, **kwargs)
+            return original_fn(*args, **kwargs)
+        return _patched
 
-        mm.soft_empty_cache = _patched
-        logger.debug("Hooked comfy.model_management.soft_empty_cache.")
-    except Exception:
-        pass  # Not running inside ComfyUI — no-op.
+    hooked = []
+
+    for name in ("soft_empty_cache", "cleanup_models", "free_memory", "unload_all_models"):
+        if hasattr(mm, name):
+            original = getattr(mm, name)
+            setattr(mm, name, _make_wrapper(original, name))
+            hooked.append(name)
+
+    if hooked:
+        logger.debug(f"Hooked comfy.model_management: {', '.join(hooked)}")
 
 
 # Install the hook the moment this module is first imported.

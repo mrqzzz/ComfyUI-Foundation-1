@@ -12,7 +12,7 @@ Model files go in:  ComfyUI/models/stable_audio/<any-subfolder>/
 Required files:     Foundation_1.safetensors  +  model_config.json
 """
 
-__version__ = "0.1.5"
+__version__ = "0.1.6"
 
 import warnings
 

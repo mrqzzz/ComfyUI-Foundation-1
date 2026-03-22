@@ -411,7 +411,16 @@ class Foundation1ModelLoader:
 
         # ── Build model architecture ───────────────────────────────────────
         logger.info("Building model architecture from config...")
-        from stable_audio_tools.models.factory import create_model_from_config
+        try:
+            from stable_audio_tools.models.factory import create_model_from_config
+        except ModuleNotFoundError as e:
+            raise ModuleNotFoundError(
+                f"{e}\n\n"
+                "'stable_audio_tools' is required but not installed. "
+                "Please run the following command in your ComfyUI environment:\n"
+                "  pip install stable-audio-tools --no-deps\n"
+                "Then restart ComfyUI."
+            ) from e
         audio_model = create_model_from_config(model_config)
 
         # ── Load weights ───────────────────────────────────────────────────
