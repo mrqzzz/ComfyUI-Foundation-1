@@ -35,7 +35,7 @@ try:
 except ImportError:
     _HAS_MM = False
 
-from .model_cache import is_offloaded, offload_to_cpu, resume_to_device, set_keep_in_vram
+from .model_cache import is_offloaded, offload_to_cpu, resume_to_device
 
 logger = logging.getLogger("Foundation1")
 
@@ -337,30 +337,17 @@ class Foundation1Generate:
                 }),
             },
             "optional": {
-                "audio": ("AUDIO", {
-                    "tooltip": (
-                        "Optional input audio for variation generation. "
-                        "Connect an AUDIO output from another node (e.g. LoadAudio, "
-                        "or a previous Foundation1Generate output). "
-                        "When connected, the model will create a variation/interpretation "
-                        "of this audio guided by your prompt. "
-                        "Leave disconnected for standard text-to-audio generation."
-                    ),
+                "audio_init": ("AUDIO", {
+                    "tooltip": "Optional starting audio for Audio-to-Audio remixing/inpainting."
                 }),
-                "init_noise_level": ("FLOAT", {
-                    "default": 0.7,
+                "denoise": ("FLOAT", {
+                    "default": 0.55,
                     "min": 0.01,
                     "max": 1.0,
                     "step": 0.01,
-                    "tooltip": (
-                        "Variation strength when an input audio is connected. "
-                        "Lower values (0.1–0.3) produce output close to the input. "
-                        "Higher values (0.5–0.9) give more creative interpretations. "
-                        "1.0 = maximum variation. Only used when audio input is connected. "
-                        "Recommended: 0.5–0.75 for musical variations."
-                    ),
+                    "tooltip": "Strength of modification when using audio_init. 1.0 = entirely new track, 0.1 = subtle changes."
                 }),
-            },
+            }
         }
 
     RETURN_TYPES = ("AUDIO",)
@@ -386,8 +373,8 @@ class Foundation1Generate:
         sigma_max: float,
         unload_after_generate: bool,
         torch_compile: bool,
-        audio: Optional[Dict[str, Any]] = None,
-        init_noise_level: float = 0.7,
+        audio_init: Optional[Dict[str, Any]] = None,
+        denoise: float = 0.55,
     ) -> Tuple[Dict[str, Any]]:
 
         self._check_interrupt()
@@ -395,9 +382,6 @@ class Foundation1Generate:
         # ── Validate ───────────────────────────────────────────────────────
         if not tags.strip():
             raise ValueError("'tags' cannot be empty.")
-
-        # ── Update keep_in_vram flag so ComfyUI 'Free Memory' behaves correctly
-        set_keep_in_vram(not unload_after_generate)
 
         # ── Parse dropdowns ────────────────────────────────────────────────
         bpm_int  = int(bpm.split()[0])
@@ -466,6 +450,24 @@ class Foundation1Generate:
             except AttributeError:
                 torch.backends.cuda.matmul.allow_tf32 = True
                 torch.backends.cudnn.allow_tf32        = True
+                
+        # ── Audio-to-Audio Init ────────────────────────────────────────────
+        init_audio_tuple = None
+        if audio_init is not None:
+            init_waveform = audio_init.get("waveform")
+            init_sr = audio_init.get("sample_rate")
+            if init_waveform is not None and init_sr is not None:
+                # stable_audio_tools expects the waveform to be pushed to the active device
+                init_waveform = init_waveform.to(device).float()
+                
+                # ComfyUI adds a batch dimension: [batch, channels, samples]
+                # stable_audio_tools expects [channels, samples]
+                if init_waveform.dim() == 3:
+                    init_waveform = init_waveform.squeeze(0)
+                
+                # Fix: stable_audio_tools requires the order (sample_rate, waveform)
+                init_audio_tuple = (init_sr, init_waveform)
+                logger.info(f"Audio-to-Audio mode enabled. Denoise strength: {denoise}")
 
         # ── Progress bar ───────────────────────────────────────────────────
         # steps   = diffusion steps (one callback per k-diffusion step)
@@ -481,35 +483,8 @@ class Foundation1Generate:
             step = data.get("i", 0)
             pbar.update_absolute(step + 1, total_pbar_steps)
 
-        # ── Prepare optional input audio for variation ──────────────────────
-        init_audio_arg = None
-        if audio is not None:
-            waveform = audio.get("waveform")
-            in_sr = audio.get("sample_rate", sample_rate)
-            if waveform is None:
-                logger.warning("Audio input provided but has no 'waveform' key — ignoring.")
-            else:
-                if waveform.dim() == 3:
-                    waveform = waveform[0]
-                elif waveform.dim() == 1:
-                    waveform = waveform.unsqueeze(0)
-                init_audio_arg = (in_sr, waveform.to(device))
-                logger.info(
-                    f"Audio variation mode — input shape={list(waveform.shape)}, "
-                    f"input_sr={in_sr}, init_noise_level={init_noise_level}"
-                )
-
         # ── Generate ───────────────────────────────────────────────────────
-        try:
-            from stable_audio_tools.inference.generation import generate_diffusion_cond
-        except ModuleNotFoundError as e:
-            raise ModuleNotFoundError(
-                f"{e}\n\n"
-                "'stable_audio_tools' is required but not installed. "
-                "Please run the following command in your ComfyUI environment:\n"
-                "  pip install stable-audio-tools --no-deps\n"
-                "Then restart ComfyUI."
-            ) from e
+        from stable_audio_tools.inference.generation import generate_diffusion_cond
 
         conditioning = [{
             "prompt": full_prompt,
@@ -553,21 +528,28 @@ class Foundation1Generate:
             # inference_mode is stronger than no_grad — it disables autograd
             # history entirely, reducing memory overhead and running faster.
             with torch.inference_mode():
+                # Setup base arguments
+                kwargs = {
+                    "steps": steps,
+                    "cfg_scale": cfg_scale,
+                    "conditioning": conditioning,
+                    "sample_size": sample_size,
+                    "seed": seed,
+                    "device": device,
+                    "sampler_type": sampler_type,
+                    "sigma_min": sigma_min,
+                    "sigma_max": sigma_max,
+                    "callback": _step_callback,
+                }
+                
+                # Append audio-to-audio parameters dynamically if present
+                if init_audio_tuple is not None:
+                    kwargs["init_audio"] = init_audio_tuple
+                    kwargs["init_noise_level"] = denoise
+                    
                 audio_tensor = generate_diffusion_cond(
                     audio_model,
-                    steps=steps,
-                    cfg_scale=cfg_scale,
-                    conditioning=conditioning,
-                    sample_size=sample_size,
-                    seed=seed,
-                    device=device,
-                    # passed through **sampler_kwargs into each k-diff sampler
-                    sampler_type=sampler_type,
-                    sigma_min=sigma_min,
-                    sigma_max=sigma_max,
-                    callback=_step_callback,
-                    init_audio=init_audio_arg,
-                    init_noise_level=init_noise_level,
+                    **kwargs
                 )
 
             # Decode step — mark progress bar complete
@@ -590,9 +572,8 @@ class Foundation1Generate:
                     pass
             if unload_after_generate:
                 offload_to_cpu()
-            else:
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
         # ── Format output ──────────────────────────────────────────────────
         # ComfyUI AUDIO: {"waveform": Tensor[batch, channels, samples], "sample_rate": int}
@@ -633,12 +614,11 @@ class Foundation1Generate:
         sigma_max,
         unload_after_generate,
         torch_compile,
-        audio=None,
-        init_noise_level=0.7,
+        audio_init=None,
+        denoise=0.55,
     ):
         # Hash all generation parameters so ComfyUI caches the result when
         # nothing changes. When the user enables ComfyUI's 'randomize seed',
         # the seed value changes → hash changes → node re-executes.
         return hash((tags, bpm, bars, key, steps, cfg_scale, seed,
-                     sampler_type, sigma_min, sigma_max, torch_compile,
-                     init_noise_level))
+                     sampler_type, sigma_min, sigma_max, torch_compile, denoise))

@@ -1,0 +1,212 @@
+{
+  "id": "f6d7010c-a332-488c-ba84-e25270158f41",
+  "revision": 0,
+  "last_node_id": 6,
+  "last_link_id": 4,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "Foundation1ModelLoader",
+      "pos": [
+        50,
+        200
+      ],
+      "size": [
+        315,
+        82
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "model",
+          "type": "FOUNDATION1_MODEL",
+          "slot_index": 0,
+          "links": [
+            1
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "ComfyUI-foundation-1",
+        "ver": "bf12dcd9be7f86ef3491fb381801d3fd620868b3",
+        "Node name for S&R": "Foundation1ModelLoader"
+      },
+      "widgets_values": [
+        "Foundation-1/Foundation_1.safetensors",
+        "auto"
+      ]
+    },
+    {
+      "id": 2,
+      "type": "LoadAudio",
+      "pos": [
+        38.42187500000001,
+        354.5026041666667
+      ],
+      "size": [
+        315,
+        136
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "AUDIO",
+          "type": "AUDIO",
+          "slot_index": 0,
+          "links": [
+            4
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.16.4",
+        "Node name for S&R": "LoadAudio"
+      },
+      "widgets_values": [
+        "God is a weapon.mp4",
+        null,
+        null
+      ]
+    },
+    {
+      "id": 3,
+      "type": "Foundation1Generate",
+      "pos": [
+        450,
+        200
+      ],
+      "size": [
+        400,
+        420
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "FOUNDATION1_MODEL",
+          "link": 1
+        },
+        {
+          "name": "audio_init",
+          "shape": 7,
+          "type": "AUDIO",
+          "link": 4
+        }
+      ],
+      "outputs": [
+        {
+          "name": "AUDIO",
+          "type": "AUDIO",
+          "slot_index": 0,
+          "links": [
+            3
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "ComfyUI-foundation-1",
+        "ver": "bf12dcd9be7f86ef3491fb381801d3fd620868b3",
+        "Node name for S&R": "Foundation1Generate"
+      },
+      "widgets_values": [
+        "Chiptune, Chord Progression, Pulse Wave, Medium Reverb, 8 Bars, 128 BPM, D minor",
+        "100 BPM",
+        "8 Bars",
+        "C minor",
+        250,
+        7,
+        822950111949212,
+        "randomize",
+        "dpmpp-3m-sde",
+        0.3,
+        500,
+        false,
+        false,
+        1
+      ]
+    },
+    {
+      "id": 4,
+      "type": "SaveAudio",
+      "pos": [
+        950,
+        200
+      ],
+      "size": [
+        315,
+        112
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "audio",
+          "type": "AUDIO",
+          "link": 3
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.16.4",
+        "Node name for S&R": "SaveAudio"
+      },
+      "widgets_values": [
+        "foundation1_remix"
+      ]
+    }
+  ],
+  "links": [
+    [
+      1,
+      1,
+      0,
+      3,
+      0,
+      "FOUNDATION1_MODEL"
+    ],
+    [
+      3,
+      3,
+      0,
+      4,
+      0,
+      "AUDIO"
+    ],
+    [
+      4,
+      2,
+      0,
+      3,
+      1,
+      "AUDIO"
+    ]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {
+    "ds": {
+      "scale": 0.9653189799786054,
+      "offset": [
+        74.79716083333365,
+        176.01277466145865
+      ]
+    },
+    "frontendVersion": "1.39.19",
+    "VHS_latentpreview": false,
+    "VHS_latentpreviewrate": 0,
+    "VHS_MetadataImage": true,
+    "VHS_KeepIntermediate": true
+  },
+  "version": 0.4
+}

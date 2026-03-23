@@ -347,13 +347,21 @@ class Foundation1ModelLoader:
     ) -> Tuple[Dict[str, Any]]:
 
         # ── CUDA is required (Flash Attention hardcoded in model architecture) ──
-        if not torch.cuda.is_available():
-            raise RuntimeError(
-                "Foundation-1 requires CUDA. "
-                "The model architecture uses Flash Attention which is CUDA-only."
-            )
-        resolved_device = "cuda"
-        logger.info(f"Device: cuda")
+        # Modified check to bypass CUDA-only restriction and enable MPS for macOS
+        # if not torch.cuda.is_available():
+        #     raise RuntimeError(
+        #         "Foundation-1 requires CUDA. "
+        #         "The model architecture uses Flash Attention which is CUDA-only."
+        #     )
+        
+        if torch.cuda.is_available():
+            resolved_device = "cuda"
+        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            resolved_device = "mps"
+        else:
+            resolved_device = "cpu"
+            
+        logger.info(f"Device: {resolved_device}")
 
         # ── Locate checkpoint + config ─────────────────────────────────────
         pairs = _scan_checkpoints()
@@ -411,16 +419,7 @@ class Foundation1ModelLoader:
 
         # ── Build model architecture ───────────────────────────────────────
         logger.info("Building model architecture from config...")
-        try:
-            from stable_audio_tools.models.factory import create_model_from_config
-        except ModuleNotFoundError as e:
-            raise ModuleNotFoundError(
-                f"{e}\n\n"
-                "'stable_audio_tools' is required but not installed. "
-                "Please run the following command in your ComfyUI environment:\n"
-                "  pip install stable-audio-tools --no-deps\n"
-                "Then restart ComfyUI."
-            ) from e
+        from stable_audio_tools.models.factory import create_model_from_config
         audio_model = create_model_from_config(model_config)
 
         # ── Load weights ───────────────────────────────────────────────────
