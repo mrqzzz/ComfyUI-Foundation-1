@@ -23,7 +23,7 @@
 <img width="1837" height="1092" alt="Screenshot 2026-03-17 062834" src="https://github.com/user-attachments/assets/2557577b-a677-42e8-8658-cb9fdb42ed6d" />
 
 
-<h3>Audio-to-Audio Support (Remixing &amp; Style Transfer):</h3>
+<h3>Audio-to-Audio (audio-2-audio) Support (Remixing &amp; Style Transfer):</h3>
 
 <img width="1837" height="1092" alt="Screenshot 2026-03-17 062834" src="example_workflows/Foundation-1-audio2audio_example_workflow.png" />
 
