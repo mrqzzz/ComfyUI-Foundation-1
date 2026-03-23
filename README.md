@@ -65,10 +65,10 @@ https://github.com/user-attachments/assets/6c00c56d-ea46-4feb-9bf8-876ecb2487b2
 
 ## Requirements
 
-- **GPU:** NVIDIA GPU with **8GB VRAM minimum** (CUDA required)
+- **GPU:** NVIDIA GPU with **8GB VRAM minimum** (CUDA NOT required)
   - Typical VRAM usage: **~7GB** during generation
   - Generation speed: **~20 it/s** (iterations per second) with default sampler
-- **CPU/MPS:** Not supported — Foundation-1 uses Flash Attention which is CUDA-only
+- **CPU/MPS:** supported 
 - **Python:** 3.10+
 - **CUDA:** 11.8+
 - **Flash Attention:** Required (comes with PyTorch 2.0+ SDPA)
