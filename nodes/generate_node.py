@@ -474,6 +474,7 @@ class Foundation1Generate:
                 
         # ── Audio-to-Audio Init ────────────────────────────────────────────
         init_audio_tuple = None
+        actual_noise_level = 0.0
         if audio_init is not None:
             init_waveform = audio_init.get("waveform")
             init_sr = audio_init.get("sample_rate")
@@ -488,7 +489,8 @@ class Foundation1Generate:
                 
                 # Fix: stable_audio_tools requires the order (sample_rate, waveform)
                 init_audio_tuple = (init_sr, init_waveform)
-                logger.info(f"Audio-to-Audio mode enabled. Denoise strength: {denoise}")
+                actual_noise_level = denoise * sigma_max
+                logger.info(f"Audio-to-Audio mode enabled. Denoise ratio: {denoise} (Sigma: {actual_noise_level})")
 
         # ── Progress bar ───────────────────────────────────────────────────
         # steps   = diffusion steps (one callback per k-diffusion step)
@@ -566,7 +568,7 @@ class Foundation1Generate:
                 # Append audio-to-audio parameters dynamically if present
                 if init_audio_tuple is not None:
                     kwargs["init_audio"] = init_audio_tuple
-                    kwargs["init_noise_level"] = denoise
+                    kwargs["init_noise_level"] = actual_noise_level
                     
                 audio_tensor = generate_diffusion_cond(
                     audio_model,
