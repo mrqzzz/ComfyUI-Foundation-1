@@ -16,6 +16,7 @@ clear the CPU-resident copy when this is enabled.
 
 import importlib.util
 import logging
+import subprocess
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -40,7 +41,7 @@ from .model_cache import is_offloaded, offload_to_cpu, resume_to_device
 logger = logging.getLogger("Foundation1")
 
 # ---------------------------------------------------------------------------
-# k_diffusion shim paths
+# k_diffusion shim paths & auto-installer
 # ---------------------------------------------------------------------------
 # k-diffusion 0.1.1 is installed by __init__.py into this private directory
 # using pip --target (NOT site-packages, NOT on sys.path).  We load only the
@@ -51,6 +52,26 @@ logger = logging.getLogger("Foundation1")
 # nodes/generate_node.py → nodes/ → ComfyUI-Foundation-1/
 _NODE_ROOT = Path(__file__).parent.parent.resolve()
 _KDIFF_TARGET = _NODE_ROOT / "k_diffusion_files"
+
+def _ensure_k_diffusion() -> None:
+    """Automatically installs the required vanilla k-diffusion if missing."""
+    ext_path = _KDIFF_TARGET / "k_diffusion" / "external.py"
+    if not ext_path.is_file():
+        logger.info(f"k-diffusion not found in {_KDIFF_TARGET}. Auto-installing...")
+        _KDIFF_TARGET.mkdir(parents=True, exist_ok=True)
+        try:
+            # sys.executable ensures we use the exact Python virtual environment running ComfyUI
+            subprocess.check_call([
+                sys.executable, "-m", "pip", "install",
+                "k-diffusion==0.1.1",
+                "--target", str(_KDIFF_TARGET)
+            ])
+            logger.info("k-diffusion successfully installed.")
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Failed to auto-install k-diffusion: {e}")
+
+# Run the check immediately when the module is loaded
+_ensure_k_diffusion()
 
 _real_k_sampling: Optional[object] = None   # cached after first load
 _external_injected: bool = False             # injected once per session
