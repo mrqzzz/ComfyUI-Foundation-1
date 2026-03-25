@@ -65,7 +65,7 @@ https://github.com/user-attachments/assets/6c00c56d-ea46-4feb-9bf8-876ecb2487b2
 
 ## Requirements
 
-- **GPU:** NVIDIA GPU with **8GB VRAM minimum** (CUDA NOT required)
+- **GPU:** **8GB VRAM minimum** (CUDA NOT required)
   - Typical VRAM usage: **~7GB** during generation
   - Generation speed: **~20 it/s** (iterations per second) with default sampler
 - **CPU/MPS:** supported 
